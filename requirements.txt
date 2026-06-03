@@ -1,0 +1,9 @@
+# Core dependencies for Step 1.
+# We add more (anthropic SDK calls, fastapi, etc.) as we reach those steps.
+
+python-dotenv>=1.0        # loads secrets from the .env file
+anthropic>=0.40           # official Anthropic SDK (used in Step 2)
+requests>=2.31            # HTTP calls to ServiceNow (used later)
+
+# Development / testing
+pytest>=8.0

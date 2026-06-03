@@ -1,0 +1,22 @@
+[
+  {
+    "question": "How do I reset my password?",
+    "keywords": ["password", "reset", "forgot", "locked out"],
+    "answer": "Go to the self-service portal at portal.company.com, click 'Forgot Password', and follow the prompts. If you're locked out, wait 15 minutes or contact the help desk."
+  },
+  {
+    "question": "How do I connect to the VPN?",
+    "keywords": ["vpn", "remote", "work from home", "connection"],
+    "answer": "Open the company VPN client, sign in with your network credentials, and approve the MFA prompt on your phone. If it fails, restart the client and check your internet connection."
+  },
+  {
+    "question": "My printer won't print. What do I do?",
+    "keywords": ["printer", "print", "hardware", "paper"],
+    "answer": "Check that the printer is powered on and connected to the network, clear any paper jams, and try printing a test page. If it still fails, restart the printer and re-add it from Settings > Printers."
+  },
+  {
+    "question": "How do I set up email on my phone?",
+    "keywords": ["email", "phone", "mobile", "outlook", "setup"],
+    "answer": "Install the Outlook mobile app, sign in with your company email and password, and approve the MFA prompt. Allow the app the requested permissions to sync mail and calendar."
+  }
+]
