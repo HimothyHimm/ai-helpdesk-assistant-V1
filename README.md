@@ -1,10 +1,11 @@
 # AI Help Desk Assistant
 
-An enterprise IT support assistant that answers common help desk questions,
-troubleshoots issues conversationally, categorizes incidents, and retrieves
-answers from a knowledge base using semantic (vector) search. Built around the
-Microsoft enterprise stack — the same systems an IT operations role actually
-runs: Microsoft 365, Intune, Entra ID, VPN, and endpoint support.
+An enterprise IT support assistant that signs users in with their Microsoft
+account, answers common help desk questions, troubleshoots issues
+conversationally, categorizes incidents, and retrieves answers from a knowledge
+base using semantic (vector) search. Built around the Microsoft enterprise
+stack — the same systems an IT operations role actually runs: Microsoft 365,
+Entra ID, Intune, VPN, and endpoint support.
 
 > Built by an IT professional with enterprise help desk experience, as a
 > hands-on demonstration of cloud + AI operations skills.
@@ -13,19 +14,21 @@ runs: Microsoft 365, Intune, Entra ID, VPN, and endpoint support.
 
 ## Skills demonstrated
 
-**Cloud & AI (Azure)**
+**Cloud & AI (Azure + Microsoft 365)**
 - **Azure OpenAI** — chat completions (`gpt-4.1-mini`) for multi-turn troubleshooting, and embeddings (`text-embedding-3-small`) for semantic retrieval
 - **Azure AI Search** — a vector index (HNSW, cosine similarity) used as the retrieval layer of a **RAG** pipeline
+- **Microsoft Entra ID + Microsoft Graph** — user sign-in via the OAuth 2.0 **device code flow** (MSAL), with a token cache for silent re-authentication, then a Graph call to read the signed-in user's profile
 - **Resource provisioning & cost management** — resources deployed on free/credit tiers with budget alerts and spending guardrails
-- **Secrets management** — all credentials kept in a git-ignored `.env`, never committed
+- **Secrets management** — credentials and tokens kept in git-ignored files (`.env`, token cache), never committed
 
 **Software engineering**
-- **Python** with a clean, modular architecture (separate layers for AI, knowledge base, incidents, and integrations)
-- **Graceful degradation** — every external dependency (AI, embeddings, search) falls back safely when unavailable, so the app never hard-crashes
+- **Python** with a clean, modular architecture (separate layers for auth, AI, knowledge base, incidents, and integrations)
+- **Graceful degradation** — every external dependency (AI, embeddings, search, sign-in) falls back safely when unavailable, so the app never hard-crashes
 - **Automated tests** with `pytest`, written to run offline (no keys/network) so they stay reliable in CI
 - **Git/GitHub** — incremental, well-described commit history
 
 **IT domain knowledge**
+- Microsoft identity (Entra ID) sign-in and Graph profile lookup
 - Incident categorization and priority assignment modeled on real service-desk workflows
 - Knowledge base scenarios drawn from real M365 / Intune / identity / VPN / endpoint support
 
@@ -35,10 +38,11 @@ runs: Microsoft 365, Intune, Entra ID, VPN, and endpoint support.
 
 | Capability | How it works |
 |---|---|
+| **Microsoft sign-in** | Sign in with your Entra ID account via the device code flow; the app greets you by name and reads your profile from Microsoft Graph. Tokens are cached, so sign-in is silent after the first time |
 | **Conversational troubleshooting** | Multi-turn chat via Azure OpenAI; conversation history is maintained so follow-up questions keep context |
 | **Semantic knowledge base (RAG)** | A user question is embedded and matched against an Azure AI Search vector index — so "I can't get into my account" finds the password-reset FAQ even with no shared keywords |
 | **Incident categorization** | Each request is sorted into a category and priority (rules-based, instant, no API needed) |
-| **Offline fallback** | Without cloud credentials, the app still categorizes requests and runs keyword-based FAQ search |
+| **Offline fallback** | Without cloud credentials, the app still runs unauthenticated, categorizes requests, and does keyword-based FAQ search |
 
 ---
 
@@ -47,6 +51,7 @@ runs: Microsoft 365, Intune, Entra ID, VPN, and endpoint support.
 ```
 config/                 # central settings; reads secrets from .env
 helpdesk/
+  auth/                 # Microsoft Entra ID sign-in (MSAL) + Graph profile
   core/                 # LLM client (Azure OpenAI chat)
   knowledge/            # knowledge base, embedder, Azure AI Search vector store
     data/faq.json       # the FAQ source data
@@ -55,19 +60,22 @@ helpdesk/
   interface/            # command-line interface
 tests/                  # offline-safe pytest suite
 index_faqs.py           # one-time script: embeds FAQs and loads the search index
+try_signin.py           # standalone smoke test for the sign-in flow
 main.py                 # entry point
 ```
 
-The retrieval layer is decoupled: the knowledge base exposes a single
-`search(query)` method, so the matching strategy (keyword → vector) was upgraded
-without changing any calling code.
+The layers are decoupled: the knowledge base exposes a single `search(query)`
+method (keyword → vector), and sign-in is an optional `EntraAuth().sign_in()`
+step at startup — so each piece can change without touching the others.
 
 ---
 
 ## Setup
 
 Requires Python 3.10+, an Azure OpenAI resource (chat + embedding deployments),
-and an Azure AI Search service.
+an Azure AI Search service, and a Microsoft Entra ID app registration (public
+client, "Allow public client flows" enabled, with the `User.Read` Graph
+permission).
 
 ```bash
 # 1. Create and activate a virtual environment
@@ -79,18 +87,20 @@ python -m venv .venv
 pip install -r requirements.txt
 
 # 3. Configure credentials
-copy .env.example .env          # then fill in your Azure values
+copy .env.example .env          # then fill in your Azure + Entra values
 # (cp on macOS/Linux)
 
 # 4. Load the FAQ data into the search index (one time)
 python index_faqs.py
 
 # 5. Run
-python main.py                  # try: "I can't get into my account"
+python main.py                  # signs you in, then try: "I can't get into my account"
 pytest                          # run the test suite
 ```
 
-All required `.env` values are documented in `.env.example`.
+All required `.env` values are documented in `.env.example`. The first launch
+signs you in via the device code flow (open the printed URL, enter the code);
+after that, the cached token signs you in silently.
 
 ---
 
@@ -102,9 +112,9 @@ All required `.env` values are documented in `.env.example`.
 - [x] Incident categorization + priority assignment
 - [x] Live AI troubleshooting on Azure OpenAI (multi-turn)
 - [x] Vector database / semantic search (RAG) on Azure AI Search
+- [x] Microsoft Entra ID sign-in (device code flow) + Graph profile + silent token cache
 
 **Planned**
-- [ ] Entra ID authentication (Microsoft identity sign-in via MSAL)
 - [ ] LLM-assisted incident categorization
 - [ ] ServiceNow integration (ticket creation via a developer instance)
 - [ ] Web API (FastAPI) and a simple web UI
@@ -122,7 +132,10 @@ All required `.env` values are documented in `.env.example`.
 
 ## Notes
 
-- This is a portfolio/learning project. It uses a ServiceNow **developer
-  instance** (not any production system) and simulated M365/Intune scenarios —
-  no real company tenant or data is connected.
-- Secrets live only in a local, git-ignored `.env`.
+- This is a portfolio/learning project. ServiceNow integration will use a
+  **developer instance** (not any production system), and the M365/Intune
+  scenarios are simulated — no real company tenant or data is connected beyond
+  the developer's own test Entra tenant used for sign-in.
+- Secrets and tokens live only in local, git-ignored files (`.env`,
+  `.token_cache.json`). For production, the token cache would move to an OS
+  keychain rather than a local file.
