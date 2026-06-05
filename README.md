@@ -1,99 +1,128 @@
 # AI Help Desk Assistant
 
-An AI-powered IT help desk assistant that answers common support questions,
-guides users through troubleshooting, automatically categorizes incidents, and
-(later) creates tickets in ServiceNow.
+An enterprise IT support assistant that answers common help desk questions,
+troubleshoots issues conversationally, categorizes incidents, and retrieves
+answers from a knowledge base using semantic (vector) search. Built around the
+Microsoft enterprise stack — the same systems an IT operations role actually
+runs: Microsoft 365, Intune, Entra ID, VPN, and endpoint support.
 
-Built by an IT support professional learning to ship real software.
+> Built by an IT professional with enterprise help desk experience, as a
+> hands-on demonstration of cloud + AI operations skills.
 
-## What it does (and the order we're building it)
+---
 
-| Capability            | What it solves                              | Module          | Status |
-|-----------------------|---------------------------------------------|-----------------|--------|
-| Incident categorizing | Sort a request into a category + priority   | `incidents/`    | ✅ v1 (rules) |
-| Knowledge base / FAQ  | Look up answers from your own IT docs       | `knowledge/`    | ✅ v1 (search) |
-| AI troubleshooting    | Conversational, step-by-step help           | `core/`         | ✅ v1 (live) |
-| ServiceNow            | Create/update real tickets                  | `integrations/` | 🔜 later |
+## Skills demonstrated
 
-The first three work today; the AI troubleshooting needs an API key (see below).
-Only the ServiceNow piece is still stubbed, so the app runs end to end from day one.
+**Cloud & AI (Azure)**
+- **Azure OpenAI** — chat completions (`gpt-4.1-mini`) for multi-turn troubleshooting, and embeddings (`text-embedding-3-small`) for semantic retrieval
+- **Azure AI Search** — a vector index (HNSW, cosine similarity) used as the retrieval layer of a **RAG** pipeline
+- **Resource provisioning & cost management** — resources deployed on free/credit tiers with budget alerts and spending guardrails
+- **Secrets management** — all credentials kept in a git-ignored `.env`, never committed
 
-## Turning on the AI (Step 2)
+**Software engineering**
+- **Python** with a clean, modular architecture (separate layers for AI, knowledge base, incidents, and integrations)
+- **Graceful degradation** — every external dependency (AI, embeddings, search) falls back safely when unavailable, so the app never hard-crashes
+- **Automated tests** with `pytest`, written to run offline (no keys/network) so they stay reliable in CI
+- **Git/GitHub** — incremental, well-described commit history
 
-1. Get an API key from https://console.anthropic.com
-2. Copy `.env.example` to `.env` and set `ANTHROPIC_API_KEY=...`
-3. `pip install -r requirements.txt`
-4. `python main.py` — answers are now live and remember the conversation.
+**IT domain knowledge**
+- Incident categorization and priority assignment modeled on real service-desk workflows
+- Knowledge base scenarios drawn from real M365 / Intune / identity / VPN / endpoint support
 
-Without a key, the assistant still categorizes requests and searches the FAQ; it
-just returns a friendly "AI not configured" note instead of a live answer.
+---
 
-## Quick start
+## What it does
+
+| Capability | How it works |
+|---|---|
+| **Conversational troubleshooting** | Multi-turn chat via Azure OpenAI; conversation history is maintained so follow-up questions keep context |
+| **Semantic knowledge base (RAG)** | A user question is embedded and matched against an Azure AI Search vector index — so "I can't get into my account" finds the password-reset FAQ even with no shared keywords |
+| **Incident categorization** | Each request is sorted into a category and priority (rules-based, instant, no API needed) |
+| **Offline fallback** | Without cloud credentials, the app still categorizes requests and runs keyword-based FAQ search |
+
+---
+
+## Architecture
+
+```
+config/                 # central settings; reads secrets from .env
+helpdesk/
+  core/                 # LLM client (Azure OpenAI chat)
+  knowledge/            # knowledge base, embedder, Azure AI Search vector store
+    data/faq.json       # the FAQ source data
+  incidents/            # incident categorization + priority
+  integrations/         # ServiceNow client (planned)
+  interface/            # command-line interface
+tests/                  # offline-safe pytest suite
+index_faqs.py           # one-time script: embeds FAQs and loads the search index
+main.py                 # entry point
+```
+
+The retrieval layer is decoupled: the knowledge base exposes a single
+`search(query)` method, so the matching strategy (keyword → vector) was upgraded
+without changing any calling code.
+
+---
+
+## Setup
+
+Requires Python 3.10+, an Azure OpenAI resource (chat + embedding deployments),
+and an Azure AI Search service.
 
 ```bash
-# 1. Clone and enter the project
-git clone <your-repo-url>
-cd ai-helpdesk-assistant
-
-# 2. Create and activate a virtual environment
+# 1. Create and activate a virtual environment
 python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # macOS/Linux
 
-# 3. Install dependencies
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# 4. Copy the example env file and fill it in later (not needed yet)
-copy .env.example .env        # Windows
-# cp .env.example .env        # macOS/Linux
+# 3. Configure credentials
+copy .env.example .env          # then fill in your Azure values
+# (cp on macOS/Linux)
 
-# 5. Run the assistant
-python main.py
+# 4. Load the FAQ data into the search index (one time)
+python index_faqs.py
+
+# 5. Run
+python main.py                  # try: "I can't get into my account"
+pytest                          # run the test suite
 ```
 
-## Project structure
+All required `.env` values are documented in `.env.example`.
 
-```
-ai-helpdesk-assistant/
-├── main.py                      # Entry point — run this
-├── requirements.txt             # Python dependencies
-├── .env.example                 # Template for secrets (copy to .env)
-├── .gitignore
-├── config/
-│   └── settings.py              # Loads config + secrets from .env
-├── helpdesk/                    # The actual application package
-│   ├── core/                    # The "brain": talks to the AI model
-│   │   ├── llm_client.py
-│   │   └── prompts.py
-│   ├── knowledge/               # Answers from your own IT docs (FAQ)
-│   │   ├── knowledge_base.py
-│   │   └── data/faq.json
-│   ├── incidents/               # Categorize + prioritize requests
-│   │   ├── models.py
-│   │   └── categorizer.py
-│   ├── integrations/            # External systems (ServiceNow)
-│   │   └── servicenow_client.py
-│   └── interface/               # How users talk to the assistant
-│       └── cli.py
-├── tests/                       # Automated tests (pytest)
-│   └── test_categorizer.py
-└── docs/
-    └── architecture.md          # Deeper explanation of the design
-```
-
-## Running the tests
-
-```bash
-pytest
-```
+---
 
 ## Roadmap
 
-- [x] **Step 1** — Project architecture & folder structure
-- [x] **Step 2** — Wire up the LLM client for real AI answers (you are here)
-- [ ] **Step 3** — Grow the knowledge base into semantic search (RAG)
-- [ ] **Step 4** — Upgrade the categorizer with the LLM
-- [ ] **Step 5** — ServiceNow integration (create tickets)
-- [ ] **Step 6** — Web API (FastAPI) and a simple web UI
+**Done**
+- [x] Conversational chat interface
+- [x] Knowledge base lookup
+- [x] Incident categorization + priority assignment
+- [x] Live AI troubleshooting on Azure OpenAI (multi-turn)
+- [x] Vector database / semantic search (RAG) on Azure AI Search
+
+**Planned**
+- [ ] Entra ID authentication (Microsoft identity sign-in via MSAL)
+- [ ] LLM-assisted incident categorization
+- [ ] ServiceNow integration (ticket creation via a developer instance)
+- [ ] Web API (FastAPI) and a simple web UI
+
+---
+
+## Future ideas
+
+- **Personal finance tracker variant** — the same architecture (LLM +
+  categorizer + data store) could power a "sort my spending / track my bills"
+  app by swapping IT incidents for transactions. A natural second portfolio
+  project that would reuse most of what's here.
+
+---
+
+## Notes
+
+- This is a portfolio/learning project. It uses a ServiceNow **developer
+  instance** (not any production system) and simulated M365/Intune scenarios —
+  no real company tenant or data is connected.
+- Secrets live only in a local, git-ignored `.env`.
