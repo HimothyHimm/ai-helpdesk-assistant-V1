@@ -90,3 +90,14 @@ def azure_openai_configured() -> bool:
 def azure_search_configured() -> bool:
     """True when both the Azure AI Search endpoint and key are present."""
     return bool(AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_API_KEY)
+
+# --- Microsoft Entra ID (sign-in via MSAL device code flow) ---
+import os
+AZURE_AUTH_CLIENT_ID = os.getenv("AZURE_AUTH_CLIENT_ID", "")
+AZURE_AUTH_TENANT_ID = os.getenv("AZURE_AUTH_TENANT_ID", "")
+AZURE_AUTH_SCOPES = ["User.Read"]
+GRAPH_ME_ENDPOINT = "https://graph.microsoft.com/v1.0/me"
+
+
+def entra_auth_configured() -> bool:
+    return bool(AZURE_AUTH_CLIENT_ID and AZURE_AUTH_TENANT_ID)

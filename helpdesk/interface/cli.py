@@ -5,16 +5,40 @@ LLM client on every turn. That's the practical consequence of the model having
 no memory: WE remember the conversation and resend it each time.
 """
 
+from helpdesk.auth.entra_auth import EntraAuth
 from helpdesk.core.llm_client import LLMClient
 from helpdesk.core.prompts import build_troubleshooting_prompt
 from helpdesk.incidents.categorizer import categorize
 from helpdesk.knowledge.knowledge_base import KnowledgeBase
 
 
+def _greet() -> None:
+    """Sign in with Microsoft Entra ID and greet the user by name.
+
+    Optional by design: if Entra isn't configured, the app stays silent and
+    runs unauthenticated. If sign-in is started but doesn't complete, we say so
+    and carry on — the assistant still works without an identity.
+    """
+    auth = EntraAuth()
+    if not auth.configured:
+        return  # no Entra config -> run without sign-in
+
+    profile = auth.sign_in()
+    if profile:
+        first_name = profile.name.split()[0] if profile.name else "there"
+        print(f"\nWelcome, {first_name}! Signed in as {profile.email}.")
+        if profile.department:
+            print(f"  Department: {profile.department}")
+    else:
+        print("\n(Continuing without sign-in.)")
+
+
 def run() -> None:
     print("=" * 60)
     print("  AI Help Desk Assistant  (type 'quit' to exit)")
     print("=" * 60)
+
+    _greet()
 
     kb = KnowledgeBase()
     llm = LLMClient()

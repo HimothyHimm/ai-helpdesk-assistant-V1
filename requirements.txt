@@ -3,3 +3,5 @@ openai>=1.40.0                  # Azure OpenAI client (chat + embeddings)
 azure-search-documents>=11.5.0  # Azure AI Search vector store (RAG)
 python-dotenv>=1.0.0            # loads .env so secrets stay out of the code
 pytest>=8.0.0                   # test runner
+msal
+requests
