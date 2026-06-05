@@ -1,80 +1,132 @@
-"""The client that talks to the AI model (Anthropic's Claude).
+"""
+LLM client for the AI help desk assistant.
 
-VERSION 2: real API calls. The class is intentionally STATELESS — it does not
-remember the conversation. Memory lives wherever the client is used (the CLI
-keeps a `history` list and passes it in every time). This matters because the
-model itself has no memory between calls: you must resend the whole conversation
-on every request. Keeping the client stateless also means it reuses cleanly when
-we add a web API later, where each request manages its own history.
+Backed by Azure OpenAI. The client is intentionally STATELESS: it does not
+store conversation history. The caller (e.g. the CLI) owns the running
+history list and passes the full conversation on every call, because the
+model has no memory between requests.
 
-SDK shape (verified against https://docs.claude.com/en/api/overview):
-    client = anthropic.Anthropic(api_key=...)
-    msg = client.messages.create(model=, max_tokens=, system=, messages=[...])
-    text = msg.content[0].text
+Design notes
+------------
+- Same public interface as earlier steps: `LLMClient.reply(history)`.
+  Swapping the provider (Anthropic -> Azure OpenAI) did not change the
+  shape the rest of the app depends on, so the CLI needs no changes.
+- Graceful degradation: if Azure isn't configured (no key/endpoint) or the
+  `openai` package isn't installed, `reply()` returns a friendly message
+  instead of raising, so the categorizer and FAQ search keep working offline.
 """
 
+from __future__ import annotations
+
+from typing import List, Dict
+
 from config import settings
-from helpdesk.core import prompts
+
+# The system prompt that gives the assistant its help-desk persona.
+SYSTEM_PROMPT = (
+    "You are an enterprise IT help desk assistant. You support employees with "
+    "Microsoft 365, Intune / device management, identity and access (Entra ID), "
+    "VPN and networking, and endpoint / hardware issues. "
+    "Troubleshoot step by step, ask one clarifying question at a time when needed, "
+    "and keep answers concise and practical. If an issue involves a possible "
+    "security incident (e.g. suspected phishing, account compromise), advise the "
+    "user to escalate to the security team rather than resolving it themselves."
+)
+
+# Message returned when the AI provider isn't available. Keeps the app usable.
+_OFFLINE_NOTICE = (
+    "[AI not configured] I can still categorize your request and search the "
+    "knowledge base, but live AI troubleshooting needs an Azure OpenAI key and "
+    "endpoint in your .env file."
+)
 
 
 class LLMClient:
-    def __init__(self, model: str | None = None, max_tokens: int = 1024):
-        self.model = model or settings.LLM_MODEL
-        self.max_tokens = max_tokens
+    """Thin, stateless wrapper around the Azure OpenAI chat API."""
 
-    def reply(self, history: list[dict]) -> str:
-        """Send the full conversation `history` and return the assistant's text.
+    def __init__(self) -> None:
+        self._client = None
+        self._enabled = False
+        self._init_error: str | None = None
+        self._setup()
 
-        `history` is a list of message dicts, e.g.
-            [{"role": "user", "content": "my wifi is down"},
-             {"role": "assistant", "content": "Have you tried..."},
-             {"role": "user", "content": "yes, still nothing"}]
+    def _setup(self) -> None:
+        """Create the Azure OpenAI client, degrading gracefully on any problem."""
+        if not settings.azure_openai_configured():
+            # No key / endpoint yet. Stay offline but functional.
+            return
 
-        Returns a friendly message (never raises) if the AI isn't usable yet, so
-        the rest of the app keeps working offline.
-        """
-        # Graceful fallback #1: no API key configured.
-        if not settings.ai_is_configured():
-            return (
-                "[AI not configured] Add ANTHROPIC_API_KEY to your .env file to "
-                "enable live AI answers. (The categorizer and FAQ still work.)"
-            )
-
-        # Graceful fallback #2: SDK not installed yet.
         try:
-            import anthropic
+            from openai import AzureOpenAI
         except ImportError:
-            return "[Missing dependency] Run:  pip install -r requirements.txt"
-
-        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+            self._init_error = (
+                "The 'openai' package isn't installed. Run "
+                "'pip install -r requirements.txt'."
+            )
+            return
 
         try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                system=prompts.SYSTEM_PROMPT,
-                messages=history,
+            self._client = AzureOpenAI(
+                azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+                api_key=settings.AZURE_OPENAI_API_KEY,
+                api_version=settings.AZURE_OPENAI_API_VERSION,
             )
-        except anthropic.APIConnectionError:
-            return "[Connection error] Couldn't reach the AI service. Check your internet connection."
-        except anthropic.RateLimitError:
-            return "[Rate limited] Too many requests right now — wait a moment and try again."
-        except anthropic.APIStatusError as e:
-            return f"[API error {e.status_code}] The AI service returned an error. Check your API key and model name."
+            self._enabled = True
+        except Exception as exc:  # pragma: no cover - defensive
+            self._init_error = f"Could not initialize Azure OpenAI client: {exc}"
 
-        return self._extract_text(response)
+    @property
+    def enabled(self) -> bool:
+        """True when a live Azure OpenAI call can be made."""
+        return self._enabled
 
-    @staticmethod
-    def _extract_text(response) -> str:
-        """Pull the text out of the response, ignoring any non-text blocks."""
-        parts = [
-            block.text
-            for block in response.content
-            if getattr(block, "type", None) == "text"
-        ]
-        return "".join(parts) if parts else "(The AI returned no text.)"
+    def reply(self, history: List[Dict[str, str]]) -> str:
+        """
+        Return the assistant's next message given the full conversation so far.
 
-    def ask_once(self, user_message: str, faq_context: str | None = None) -> str:
-        """Convenience helper for a single, one-off question (no history)."""
-        content = prompts.build_troubleshooting_prompt(user_message, faq_context)
-        return self.reply([{"role": "user", "content": content}])
+        Parameters
+        ----------
+        history:
+            A list of {"role": "user"|"assistant", "content": str} dicts, in
+            order. The system prompt is added here, so it should NOT be in
+            `history`.
+
+        Returns
+        -------
+        str
+            The assistant's reply, or a friendly fallback message if the AI
+            provider is unavailable or the call fails.
+        """
+        if not self._enabled:
+            return self._init_error or _OFFLINE_NOTICE
+
+        # Azure OpenAI takes the system prompt as the first message.
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
+
+        try:
+            from openai import APIConnectionError, RateLimitError, APIStatusError
+        except ImportError:  # pragma: no cover - _enabled implies import worked
+            return _OFFLINE_NOTICE
+
+        try:
+            response = self._client.chat.completions.create(
+                model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,  # deployment name
+                messages=messages,
+                max_tokens=settings.LLM_MAX_TOKENS,
+                temperature=settings.LLM_TEMPERATURE,
+            )
+            return response.choices[0].message.content or ""
+        except APIConnectionError:
+            return (
+                "I couldn't reach the AI service (network issue). Please check "
+                "your connection and try again."
+            )
+        except RateLimitError:
+            return (
+                "The AI service is rate-limited right now. Wait a moment and "
+                "try again."
+            )
+        except APIStatusError as exc:
+            return f"The AI service returned an error (status {exc.status_code}). Try again shortly."
+        except Exception as exc:  # pragma: no cover - defensive catch-all
+            return f"Unexpected error talking to the AI service: {exc}"

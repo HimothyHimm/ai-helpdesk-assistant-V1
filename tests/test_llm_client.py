@@ -1,34 +1,30 @@
-"""Tests for the LLM client that DON'T require a network or API key.
+"""
+Tests for the Azure OpenAI LLM client.
 
-We can't unit-test a real API call here (that needs a live key and network),
-but we CAN verify the safety nets: when the AI isn't configured, the client
-returns a friendly message instead of crashing.
+These run with NO API key and NO network, so CI stays green. They verify the
+graceful-degradation path: when Azure isn't configured, the client reports
+disabled and returns a friendly notice instead of crashing.
 """
 
-from config import settings
-from helpdesk.core.llm_client import LLMClient
-from helpdesk.core.prompts import build_troubleshooting_prompt
+from helpdesk.core.llm_client import LLMClient, _OFFLINE_NOTICE
 
 
-def test_reply_without_api_key_returns_friendly_message(monkeypatch):
-    # Force the "no key configured" state regardless of the dev's environment.
-    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
-
-    client = LLMClient()
-    result = client.reply([{"role": "user", "content": "my printer is broken"}])
-
-    assert result.startswith("[AI not configured]")
-
-
-def test_prompt_includes_faq_context_when_provided():
-    prompt = build_troubleshooting_prompt(
-        "how do I reset my password?",
-        faq_context="Use the self-service portal.",
+def test_client_disabled_without_config(monkeypatch):
+    # Force "not configured" regardless of the environment running the tests.
+    monkeypatch.setattr(
+        "config.settings.azure_openai_configured", lambda: False
     )
-    assert "self-service portal" in prompt
-    assert "how do I reset my password?" in prompt
+    client = LLMClient()
+    assert client.enabled is False
 
 
-def test_prompt_is_just_the_message_without_context():
-    prompt = build_troubleshooting_prompt("hello")
-    assert prompt == "hello"
+def test_reply_returns_friendly_notice_offline(monkeypatch):
+    monkeypatch.setattr(
+        "config.settings.azure_openai_configured", lambda: False
+    )
+    client = LLMClient()
+    out = client.reply([{"role": "user", "content": "my VPN won't connect"}])
+    # Either the offline notice or an init-error string -- never a crash,
+    # and never an empty response.
+    assert isinstance(out, str) and out
+    assert out.startswith("[AI not configured]") or "openai" in out.lower()

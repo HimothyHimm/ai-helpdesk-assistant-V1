@@ -1,9 +1,4 @@
-# Core dependencies for Step 1.
-# We add more (anthropic SDK calls, fastapi, etc.) as we reach those steps.
-
-python-dotenv>=1.0        # loads secrets from the .env file
-anthropic>=0.40           # official Anthropic SDK (used in Step 2)
-requests>=2.31            # HTTP calls to ServiceNow (used later)
-
-# Development / testing
-pytest>=8.0
+# Core dependencies for the AI help desk assistant
+openai>=1.40.0          # Azure OpenAI client (chat + embeddings)
+python-dotenv>=1.0.0    # loads .env so secrets stay out of the code
+pytest>=8.0.0           # test runner
