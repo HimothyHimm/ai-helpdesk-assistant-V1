@@ -2,10 +2,11 @@
 
 An enterprise IT support assistant that signs users in with their Microsoft
 account, answers common help desk questions, troubleshoots issues
-conversationally, categorizes incidents, retrieves answers from a knowledge base
-using semantic (vector) search, and logs tickets to ServiceNow. Built around the
-Microsoft enterprise stack and the ITSM tooling an IT operations role actually
-runs: Microsoft 365, Entra ID, Intune, VPN, endpoints, and ServiceNow.
+conversationally, classifies incidents with an LLM, retrieves answers from a
+knowledge base using semantic (vector) search, and logs tickets to ServiceNow.
+Built around the Microsoft enterprise stack and the ITSM tooling an IT
+operations role actually runs: Microsoft 365, Entra ID, Intune, VPN, endpoints,
+and ServiceNow.
 
 > Built by an IT professional with enterprise help desk experience, as a
 > hands-on demonstration of cloud + AI operations skills.
@@ -15,7 +16,7 @@ runs: Microsoft 365, Entra ID, Intune, VPN, endpoints, and ServiceNow.
 ## Skills demonstrated
 
 **Cloud & AI (Azure + Microsoft 365)**
-- **Azure OpenAI** — chat completions (`gpt-4.1-mini`) for multi-turn troubleshooting, and embeddings (`text-embedding-3-small`) for semantic retrieval
+- **Azure OpenAI** — chat completions (`gpt-4.1-mini`) for multi-turn troubleshooting *and* LLM-assisted incident classification, plus embeddings (`text-embedding-3-small`) for semantic retrieval
 - **Azure AI Search** — a vector index (HNSW, cosine similarity) used as the retrieval layer of a **RAG** pipeline
 - **Microsoft Entra ID + Microsoft Graph** — user sign-in via the OAuth 2.0 **device code flow** (MSAL), with a token cache for silent re-authentication, then a Graph call to read the signed-in user's profile
 - **Resource provisioning & cost management** — resources deployed on free/credit tiers with budget alerts and spending guardrails
@@ -24,13 +25,13 @@ runs: Microsoft 365, Entra ID, Intune, VPN, endpoints, and ServiceNow.
 **Integrations & software engineering**
 - **ServiceNow** — incident creation through the REST **Table API** (basic auth against a developer instance), mapping the app's category and priority to ServiceNow fields
 - **Python** with a clean, modular architecture (separate layers for auth, AI, knowledge base, incidents, and integrations)
-- **Graceful degradation** — every external dependency (AI, embeddings, search, sign-in, ServiceNow) falls back safely when unavailable, so the app never hard-crashes
+- **Graceful degradation** — every external dependency (AI, embeddings, search, sign-in, ServiceNow) falls back safely when unavailable, so the app never hard-crashes; the LLM categorizer falls back to keyword rules offline
 - **Automated tests** with `pytest`, written to run offline (no keys/network) so they stay reliable in CI
 - **Git/GitHub** — incremental, well-described commit history
 
 **IT domain knowledge**
 - Microsoft identity (Entra ID) sign-in and Graph profile lookup
-- Incident categorization and priority assignment modeled on real service-desk workflows
+- LLM-assisted incident categorization and priority assignment, modeled on real service-desk workflows
 - ServiceNow incident logging from a support conversation
 - Knowledge base scenarios drawn from real M365 / Intune / identity / VPN / endpoint support
 
@@ -42,10 +43,10 @@ runs: Microsoft 365, Entra ID, Intune, VPN, endpoints, and ServiceNow.
 |---|---|
 | **Microsoft sign-in** | Sign in with your Entra ID account via the device code flow; the app greets you by name and reads your profile from Microsoft Graph. Tokens are cached, so sign-in is silent after the first time |
 | **Conversational troubleshooting** | Multi-turn chat via Azure OpenAI; conversation history is maintained so follow-up questions keep context |
+| **LLM-assisted categorization** | An LLM reads each request and assigns a category and priority by *meaning* (e.g. "someone got into my email" -> security / critical, not email / medium); keyword rules are the offline fallback |
 | **Semantic knowledge base (RAG)** | A user question is embedded and matched against an Azure AI Search vector index, so "I can't get into my account" finds the password-reset FAQ even with no shared keywords |
-| **Incident categorization** | Each request is sorted into a category and priority (rules-based, instant, no API needed) |
-| **ServiceNow ticket logging** | Type `ticket` to turn the current issue into a ServiceNow incident; the auto-assigned category and priority map to ServiceNow fields, and the signed-in user is recorded as the reporter |
-| **Offline fallback** | Without cloud credentials, the app still runs unauthenticated, categorizes requests, and does keyword-based FAQ search |
+| **ServiceNow ticket logging** | Type `ticket` to turn the current issue into a ServiceNow incident; the assigned category and priority map to ServiceNow fields, and the signed-in user is recorded as the reporter |
+| **Offline fallback** | Without cloud credentials, the app still runs unauthenticated, categorizes via keyword rules, and does keyword-based FAQ search |
 
 ---
 
@@ -55,10 +56,10 @@ runs: Microsoft 365, Entra ID, Intune, VPN, endpoints, and ServiceNow.
 config/                 # central settings; reads secrets from .env
 helpdesk/
   auth/                 # Microsoft Entra ID sign-in (MSAL) + Graph profile
-  core/                 # LLM client (Azure OpenAI chat)
+  core/                 # LLM client (Azure OpenAI chat + classification)
   knowledge/            # knowledge base, embedder, Azure AI Search vector store
     data/faq.json       # the FAQ source data
-  incidents/            # incident categorization + priority
+  incidents/            # LLM-assisted categorization + priority (keyword fallback)
   integrations/         # ServiceNow client (incident creation via Table API)
   interface/            # command-line interface
 tests/                  # offline-safe pytest suite
@@ -67,9 +68,10 @@ main.py                 # entry point
 ```
 
 The layers are decoupled: the knowledge base exposes a single `search(query)`
-method (keyword to vector), sign-in is an optional `EntraAuth().sign_in()` step
-at startup, and ServiceNow is reached through a small `ServiceNowClient` — so
-each piece can change without touching the others.
+method (keyword to vector), categorization exposes `categorize()` (LLM with a
+rule fallback), sign-in is an optional `EntraAuth().sign_in()` step at startup,
+and ServiceNow is reached through a small `ServiceNowClient` — so each piece can
+change without touching the others.
 
 ---
 
@@ -117,9 +119,9 @@ silently.
 - [x] Vector database / semantic search (RAG) on Azure AI Search
 - [x] Microsoft Entra ID sign-in (device code flow) + Graph profile + silent token cache
 - [x] ServiceNow integration — incident creation via the REST Table API
+- [x] LLM-assisted incident categorization (with keyword-rule fallback)
 
 **Planned**
-- [ ] LLM-assisted incident categorization
 - [ ] Web API (FastAPI) and a simple web UI
 
 ---
