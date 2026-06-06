@@ -5,3 +5,5 @@ python-dotenv>=1.0.0            # loads .env so secrets stay out of the code
 pytest>=8.0.0                   # test runner
 msal
 requests
+fastapi
+uvicorn
