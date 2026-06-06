@@ -11,13 +11,16 @@ Design notes
 - Same public interface as earlier steps: `LLMClient.reply(history)`.
   Swapping the provider (Anthropic -> Azure OpenAI) did not change the
   shape the rest of the app depends on, so the CLI needs no changes.
+- `classify()` adds LLM-assisted incident categorization, reusing the same
+  client. It returns plain dict/None so the categorizer can fall back to rules.
 - Graceful degradation: if Azure isn't configured (no key/endpoint) or the
-  `openai` package isn't installed, `reply()` returns a friendly message
+  `openai` package isn't installed, calls return a friendly message / None
   instead of raising, so the categorizer and FAQ search keep working offline.
 """
 
 from __future__ import annotations
 
+import json
 from typing import List, Dict
 
 from config import settings
@@ -53,7 +56,6 @@ class LLMClient:
     def _setup(self) -> None:
         """Create the Azure OpenAI client, degrading gracefully on any problem."""
         if not settings.azure_openai_configured():
-            # No key / endpoint yet. Stay offline but functional.
             return
 
         try:
@@ -81,36 +83,20 @@ class LLMClient:
         return self._enabled
 
     def reply(self, history: List[Dict[str, str]]) -> str:
-        """
-        Return the assistant's next message given the full conversation so far.
-
-        Parameters
-        ----------
-        history:
-            A list of {"role": "user"|"assistant", "content": str} dicts, in
-            order. The system prompt is added here, so it should NOT be in
-            `history`.
-
-        Returns
-        -------
-        str
-            The assistant's reply, or a friendly fallback message if the AI
-            provider is unavailable or the call fails.
-        """
+        """Return the assistant's next message given the full conversation so far."""
         if not self._enabled:
             return self._init_error or _OFFLINE_NOTICE
 
-        # Azure OpenAI takes the system prompt as the first message.
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
 
         try:
             from openai import APIConnectionError, RateLimitError, APIStatusError
-        except ImportError:  # pragma: no cover - _enabled implies import worked
+        except ImportError:  # pragma: no cover
             return _OFFLINE_NOTICE
 
         try:
             response = self._client.chat.completions.create(
-                model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,  # deployment name
+                model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,
                 messages=messages,
                 max_tokens=settings.LLM_MAX_TOKENS,
                 temperature=settings.LLM_TEMPERATURE,
@@ -128,5 +114,52 @@ class LLMClient:
             )
         except APIStatusError as exc:
             return f"The AI service returned an error (status {exc.status_code}). Try again shortly."
-        except Exception as exc:  # pragma: no cover - defensive catch-all
+        except Exception as exc:  # pragma: no cover
             return f"Unexpected error talking to the AI service: {exc}"
+
+    def classify(self, text: str, categories: List[str], priorities: List[str]) -> "Dict[str, str] | None":
+        """
+        Classify `text` into one of `categories` and one of `priorities`.
+
+        Returns {"category": <value>, "priority": <value>} drawn from the given
+        lists, or None if the LLM is unavailable or its output is unusable - so
+        the caller can fall back to rules. Temperature 0 for repeatable results.
+        """
+        if not self._enabled:
+            return None
+
+        system = (
+            "You classify enterprise IT help desk requests. "
+            f"Pick exactly one category from: {', '.join(categories)}. "
+            f"Pick exactly one priority from: {', '.join(priorities)}. "
+            "Reply with ONLY a JSON object like "
+            '{"category": "<category>", "priority": "<priority>"} and nothing else.'
+        )
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": text},
+        ]
+
+        try:
+            response = self._client.chat.completions.create(
+                model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,
+                messages=messages,
+                max_tokens=50,
+                temperature=0,
+            )
+            raw = (response.choices[0].message.content or "").strip()
+        except Exception:
+            return None
+
+        if "{" in raw and "}" in raw:
+            raw = raw[raw.index("{"): raw.rindex("}") + 1]
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return None
+
+        category = str(data.get("category", "")).strip().lower()
+        priority = str(data.get("priority", "")).strip().lower()
+        if category in categories and priority in priorities:
+            return {"category": category, "priority": priority}
+        return None

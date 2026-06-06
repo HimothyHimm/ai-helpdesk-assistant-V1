@@ -1,9 +1,14 @@
 """Categorize an incident into a Category and Priority.
 
-VERSION 1 (this file): simple keyword rules. No AI, no API key, fully testable.
-This is deliberate — your domain knowledge is encoded as plain rules first, so
-you have a working, explainable baseline. In Step 4 we add an LLM-powered
-categorizer that falls back to these rules when the AI is unavailable.
+Two-tier categorization:
+  1. PRIMARY  - an LLM classifier (Azure OpenAI) reads the request and picks a
+                category + priority by MEANING, constrained to the enums below.
+  2. FALLBACK - the original keyword rules, used automatically when the LLM is
+                unavailable or returns something unusable. Fully offline and
+                explainable.
+
+Public signature is unchanged: categorize(description) -> Incident. The rule
+logic is also exposed as rule_categorize() for deterministic, offline testing.
 """
 
 from helpdesk.incidents.models import Category, Incident, Priority
@@ -23,14 +28,54 @@ _CATEGORY_KEYWORDS: dict[Category, list[str]] = {
 _HIGH_PRIORITY_WORDS = ["urgent", "asap", "immediately", "can't work", "cannot work", "production"]
 _CRITICAL_WORDS = ["outage", "down", "everyone", "company-wide", "breach", "ransomware"]
 
+_llm = None  # lazily-created shared LLM client
+
+
+def _get_llm():
+    """Create the LLM client once, on first use (no import-time side effects)."""
+    global _llm
+    if _llm is None:
+        from helpdesk.core.llm_client import LLMClient
+        _llm = LLMClient()
+    return _llm
+
 
 def categorize(description: str) -> Incident:
-    """Turn a free-text request into a structured Incident."""
-    text = description.lower()
+    """Turn a free-text request into a structured Incident.
 
+    Tries the LLM classifier first; falls back to keyword rules on any failure.
+    """
+    incident = _llm_categorize(description)
+    if incident is not None:
+        return incident
+    return rule_categorize(description)
+
+
+def _llm_categorize(description: str) -> "Incident | None":
+    """Classify via the LLM and map the result back to the enums. None if unusable."""
+    try:
+        result = _get_llm().classify(
+            description,
+            categories=[c.value for c in Category],
+            priorities=[p.value for p in Priority],
+        )
+    except Exception:
+        return None
+    if not result:
+        return None
+    try:
+        category = Category(result["category"])
+        priority = Priority(result["priority"])
+    except (ValueError, KeyError):
+        return None
+    return Incident(description=description, category=category, priority=priority)
+
+
+def rule_categorize(description: str) -> Incident:
+    """Keyword-based categorization. Deterministic, offline, explainable."""
+    text = description.lower()
     category = _detect_category(text)
     priority = _detect_priority(text, category)
-
     return Incident(description=description, category=category, priority=priority)
 
 
