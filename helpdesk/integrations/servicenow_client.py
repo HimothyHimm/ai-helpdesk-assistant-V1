@@ -1,48 +1,84 @@
-"""ServiceNow integration — creates and updates tickets.
+"""Create incidents in ServiceNow via the REST Table API."""
 
-VERSION 1 (this file): a STUB so the architecture is in place. We implement the
-real REST calls in a later step. ServiceNow exposes a Table API; creating an
-incident is an HTTP POST to:
-
-    {instance_url}/api/now/table/incident
-
-authenticated with your ServiceNow credentials. We'll use the `requests`
-library and read credentials from config/settings.py (never hardcoded).
-"""
+from dataclasses import dataclass
 
 from config import settings
-from helpdesk.incidents.models import Incident
+
+
+@dataclass
+class CreatedIncident:
+    number: str
+    sys_id: str
+    url: str
+
+
+# Map this app's priority (low/medium/high) to ServiceNow urgency & impact
+# (1 = High, 2 = Medium, 3 = Low). ServiceNow derives Priority from urgency x impact.
+_URGENCY_IMPACT = {
+    "high": ("1", "1"),
+    "medium": ("2", "2"),
+    "low": ("3", "3"),
+}
 
 
 class ServiceNowClient:
+    """Thin wrapper over the ServiceNow incident Table API."""
+
     def __init__(self):
-        self.instance_url = settings.SERVICENOW_INSTANCE_URL
-        self.username = settings.SERVICENOW_USERNAME
+        self.instance = settings.SERVICENOW_INSTANCE.rstrip("/")
+        self.user = settings.SERVICENOW_USER
         self.password = settings.SERVICENOW_PASSWORD
+        self.configured = settings.servicenow_configured()
 
-    def is_configured(self) -> bool:
-        return bool(self.instance_url and self.username and self.password)
+    def create_incident(self, short_description, description="",
+                         category="", priority="medium", prompt=print):
+        if not self.configured:
+            return None
 
-    def create_incident(self, incident: Incident) -> str:
-        """Create a ticket in ServiceNow and return its number.
-
-        Later step (rough shape):
-
+        try:
             import requests
-            response = requests.post(
-                f"{self.instance_url}/api/now/table/incident",
-                auth=(self.username, self.password),
-                json={
-                    "short_description": incident.description,
-                    "category": incident.category.value,
-                    "urgency": ...,  # map our Priority to ServiceNow urgency
-                },
-                headers={"Content-Type": "application/json"},
-            )
-            return response.json()["result"]["number"]
-        """
-        if not self.is_configured():
-            return "[ServiceNow not configured] Would have created a ticket for: " + incident.summary()
+        except ImportError:
+            prompt("[ServiceNow] the 'requests' package isn't installed.")
+            return None
 
-        # TODO (later step): make the real API call.
-        raise NotImplementedError("Real ServiceNow call is implemented in a later step.")
+        urgency, impact = _URGENCY_IMPACT.get((priority or "").lower(), ("2", "2"))
+        payload = {
+            "short_description": short_description,
+            "description": description,
+            "urgency": urgency,
+            "impact": impact,
+        }
+        if category:
+            payload["category"] = category
+
+        url = f"{self.instance}/api/now/table/incident"
+        try:
+            resp = requests.post(
+                url,
+                auth=(self.user, self.password),
+                headers={"Content-Type": "application/json",
+                         "Accept": "application/json"},
+                json=payload,
+                timeout=60,
+            )
+        except Exception as exc:
+            prompt(f"[ServiceNow] could not reach the instance: {exc}")
+            return None
+
+        if resp.status_code not in (200, 201):
+            prompt(f"[ServiceNow] HTTP {resp.status_code}: {resp.text[:300]}")
+            return None
+
+        try:
+            result = resp.json().get("result", {})
+        except Exception:
+            prompt("[ServiceNow] unexpected (non-JSON) response.")
+            return None
+
+        sys_id = result.get("sys_id", "")
+        view_url = f"{self.instance}/incident.do?sys_id={sys_id}" if sys_id else self.instance
+        return CreatedIncident(
+            number=result.get("number", ""),
+            sys_id=sys_id,
+            url=view_url,
+        )

@@ -9,6 +9,7 @@ the project goes on a public profile and must never leak a key.
 
 from __future__ import annotations
 
+from logging import config
 import os
 from pathlib import Path
 
@@ -101,3 +102,15 @@ GRAPH_ME_ENDPOINT = "https://graph.microsoft.com/v1.0/me"
 
 def entra_auth_configured() -> bool:
     return bool(AZURE_AUTH_CLIENT_ID and AZURE_AUTH_TENANT_ID)
+
+
+
+# --- ServiceNow (incident creation via the Table API) ---
+import os
+SERVICENOW_INSTANCE = os.getenv("SERVICENOW_INSTANCE", "")
+SERVICENOW_USER = os.getenv("SERVICENOW_USER", "")
+SERVICENOW_PASSWORD = os.getenv("SERVICENOW_PASSWORD", "")
+
+
+def servicenow_configured() -> bool:
+    return bool(SERVICENOW_INSTANCE and SERVICENOW_USER and SERVICENOW_PASSWORD)
