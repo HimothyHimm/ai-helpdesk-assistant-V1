@@ -155,6 +155,12 @@ resource "azurerm_container_app" "app" {
       }
     }
   }
+
+  # The CI/CD pipeline updates the running image, so Terraform ignores it
+  # to avoid reverting the deployed version on the next apply.
+  lifecycle {
+    ignore_changes = [template[0].container[0].image]
+  }
 }
 
 # ---------------------------------------------------------------------------
