@@ -59,7 +59,7 @@ class ServiceNowClient:
                 headers={"Content-Type": "application/json",
                          "Accept": "application/json"},
                 json=payload,
-                timeout=60,
+                timeout=120,
             )
         except Exception as exc:
             prompt(f"[ServiceNow] could not reach the instance: {exc}")

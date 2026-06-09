@@ -22,3 +22,9 @@ Thumbs.db
 # Logs
 *.log
 .token_cache.json
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfvars

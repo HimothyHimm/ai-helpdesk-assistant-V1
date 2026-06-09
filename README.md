@@ -1,157 +1,128 @@
 # AI Help Desk Assistant
 
-An enterprise IT support assistant that signs users in with their Microsoft
-account, answers common help desk questions, troubleshoots issues
-conversationally, classifies incidents with an LLM, retrieves answers from a
-knowledge base using semantic (vector) search, and logs tickets to ServiceNow.
-It runs both as a command-line tool and as a FastAPI web app with a browser chat
-UI. Built around the Microsoft enterprise stack and the ITSM tooling an IT
-operations role actually runs: Microsoft 365, Entra ID, Intune, VPN, endpoints,
-and ServiceNow.
+An end-to-end, AI-powered IT support assistant built on the Microsoft / Azure stack. It handles multi-turn troubleshooting, automatically classifies incidents by category and priority, and answers questions using retrieval-augmented generation (RAG) over a knowledge base — then optionally files a ServiceNow ticket. The app is containerized with Docker and deployed to **Azure Container Apps entirely through Terraform (Infrastructure as Code)**.
 
-> Built by an IT professional with enterprise help desk experience, as a
-> hands-on demonstration of cloud + AI operations skills.
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-7B42BC?logo=terraform&logoColor=white)
+![Azure](https://img.shields.io/badge/Azure-Container%20Apps-0078D4?logo=microsoftazure&logoColor=white)
 
----
+**Live demo:** https://ca-helpdeskapp.wittybay-4e8fa55c.eastus.azurecontainerapps.io
 
-## Skills demonstrated
-
-**Cloud & AI (Azure + Microsoft 365)**
-- **Azure OpenAI** — chat completions (`gpt-4.1-mini`) for multi-turn troubleshooting *and* LLM-assisted incident classification, plus embeddings (`text-embedding-3-small`) for semantic retrieval
-- **Azure AI Search** — a vector index (HNSW, cosine similarity) used as the retrieval layer of a **RAG** pipeline
-- **Microsoft Entra ID + Microsoft Graph** — user sign-in via the OAuth 2.0 **device code flow** (MSAL), with a token cache for silent re-authentication, then a Graph call to read the signed-in user's profile
-- **Resource provisioning & cost management** — resources deployed on free/credit tiers with budget alerts and spending guardrails
-- **Secrets management** — credentials and tokens kept in git-ignored files (`.env`, token cache), never committed
-
-**Integrations & software engineering**
-- **ServiceNow** — incident creation through the REST **Table API** (basic auth against a developer instance), mapping the app's category and priority to ServiceNow fields
-- **FastAPI** — a small REST API (`/chat` and `/ticket` endpoints) with automatic OpenAPI/Swagger docs, fronted by a lightweight browser chat page, reusing the exact same logic as the CLI
-- **Python** with a clean, modular architecture (separate layers for auth, AI, knowledge base, incidents, integrations, and interfaces)
-- **Graceful degradation** — every external dependency (AI, embeddings, search, sign-in, ServiceNow) falls back safely when unavailable, so the app never hard-crashes; the LLM categorizer falls back to keyword rules offline
-- **Automated tests** with `pytest`, written to run offline (no keys/network) so they stay reliable in CI
-- **Git/GitHub** — incremental, well-described commit history
-
-**IT domain knowledge**
-- Microsoft identity (Entra ID) sign-in and Graph profile lookup
-- LLM-assisted incident categorization and priority assignment, modeled on real service-desk workflows
-- ServiceNow incident logging from a support conversation
-- Knowledge base scenarios drawn from real M365 / Intune / identity / VPN / endpoint support
-
----
-
-## What it does
-
-| Capability | How it works |
-|---|---|
-| **Microsoft sign-in** | Sign in with your Entra ID account via the device code flow; the app greets you by name and reads your profile from Microsoft Graph. Tokens are cached, so sign-in is silent after the first time |
-| **Conversational troubleshooting** | Multi-turn chat via Azure OpenAI; conversation history is maintained so follow-up questions keep context |
-| **LLM-assisted categorization** | An LLM reads each request and assigns a category and priority by *meaning* (e.g. "someone got into my email" -> security / critical, not email / medium); keyword rules are the offline fallback |
-| **Semantic knowledge base (RAG)** | A user question is embedded and matched against an Azure AI Search vector index, so "I can't get into my account" finds the password-reset FAQ even with no shared keywords |
-| **ServiceNow ticket logging** | Type `ticket` to turn the current issue into a ServiceNow incident; the assigned category and priority map to ServiceNow fields, and the signed-in user is recorded as the reporter |
-| **Offline fallback** | Without cloud credentials, the app still runs unauthenticated, categorizes via keyword rules, and does keyword-based FAQ search |
-| **Web interface** | A FastAPI service exposes `/chat` and `/ticket` endpoints (with interactive API docs at `/docs`) behind a browser chat page, so the assistant can be used in a browser as well as the terminal — same categorizer, knowledge base, AI, and ServiceNow logic underneath |
+> The app scales to zero when idle, so the **first request takes ~10–20 seconds** while the container wakes up. After that it responds quickly.
 
 ---
 
 ## Architecture
 
-```
-config/                 # central settings; reads secrets from .env
-helpdesk/
-  auth/                 # Microsoft Entra ID sign-in (MSAL) + Graph profile
-  core/                 # LLM client (Azure OpenAI chat + classification)
-  knowledge/            # knowledge base, embedder, Azure AI Search vector store
-    data/faq.json       # the FAQ source data
-  incidents/            # LLM-assisted categorization + priority (keyword fallback)
-  integrations/         # ServiceNow client (incident creation via Table API)
-  interface/            # command-line interface
-tests/                  # offline-safe pytest suite
-index_faqs.py           # one-time script: embeds FAQs and loads the search index
-main.py                 # CLI entry point
-webapp.py               # FastAPI web API (/chat, /ticket) + inline browser chat UI
-```
+![Architecture diagram](docs/architecture.png)
 
-The layers are decoupled: the knowledge base exposes a single `search(query)`
-method (keyword to vector), categorization exposes `categorize()` (LLM with a
-rule fallback), sign-in is an optional `EntraAuth().sign_in()` step at startup,
-and ServiceNow is reached through a small `ServiceNowClient` — so each piece can
-change without touching the others. Because the logic lives in these layers
-rather than the interface, the FastAPI web app (`webapp.py`) and the CLI
-(`main.py`) are thin front ends over the very same components.
+A request flows from the browser over HTTPS into a **Container App** running the FastAPI service. The app calls **Azure OpenAI** for conversational troubleshooting and incident classification, and **Azure AI Search** to retrieve grounded answers from the knowledge base (RAG). The container image is built locally with Docker, pushed to **Azure Container Registry (ACR)**, and pulled by the Container App at deploy time. API keys are supplied as **managed Container App secrets**, and container logs flow to **Azure Log Analytics**. Every Azure resource — registry, Container Apps environment, the app, its secrets, and monitoring — is defined in **Terraform** and created with a single `terraform apply`.
 
 ---
 
-## Setup
+## What it does
 
-Requires Python 3.10+, an Azure OpenAI resource (chat + embedding deployments),
-an Azure AI Search service, a Microsoft Entra ID app registration (public client,
-"Allow public client flows" enabled, `User.Read` Graph permission), and a free
-ServiceNow Personal Developer Instance.
+- **Multi-turn troubleshooting** — holds context across a conversation using Azure OpenAI, asking clarifying questions instead of one-shot replies.
+- **Incident classification** — infers a category and priority from intent (for example, flagging an account-compromise report as *security / critical*).
+- **Retrieval-augmented answers (RAG)** — uses Azure AI Search vector embeddings to surface relevant knowledge-base articles even without exact keyword matches.
+- **ServiceNow ticketing** *(optional)* — creates incidents through the ServiceNow REST Table API, mapping the AI-derived category and priority to ITSM fields.
+- **Microsoft Entra ID sign-in** *(optional)* — OAuth 2.0 device-code flow via MSAL with a Microsoft Graph profile lookup and silent token caching.
+- **Graceful degradation** — each external dependency fails safely, so the app stays usable even when an integration isn't configured.
+
+---
+
+## Tech stack
+
+| Layer | Technologies |
+|---|---|
+| Application | Python, FastAPI, Uvicorn, browser chat UI |
+| AI | Azure OpenAI (chat + classification), Azure AI Search (RAG / vector search) |
+| Identity | Microsoft Entra ID, MSAL, Microsoft Graph (OAuth 2.0 device-code flow) |
+| ITSM | ServiceNow REST Table API |
+| Container | Docker |
+| Infrastructure as Code | Terraform (azurerm provider) |
+| Hosting | Azure Container Apps, Azure Container Registry, Azure Log Analytics |
+
+---
+
+## Infrastructure as Code
+
+The entire cloud footprint lives in [`terraform/`](terraform/) and is reproducible from scratch. Terraform provisions:
+
+- an **Azure Container Registry** (Basic) to hold the image,
+- a **Log Analytics workspace** for container logs,
+- a **Container Apps environment**, and
+- the **Container App** itself — public HTTPS ingress on port 8000, scale-to-zero (`min_replicas = 0`), the image pulled from ACR, and API keys wired in as Container App secrets.
+
+### Deploy it yourself
+
+Prerequisites: Azure CLI, Terraform, and Docker installed; `az login` completed.
 
 ```bash
-# 1. Create and activate a virtual environment
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # macOS/Linux
+# 1. Provision the foundation (registry, environment, log analytics)
+cd terraform
+terraform init
+terraform apply -auto-approve   # outputs the ACR name/login server
 
-# 2. Install dependencies
-pip install -r requirements.txt
+# 2. Build the image and push it to the registry
+cd ..
+az acr login --name <acr_name_from_output>
+docker build -t helpdesk-assistant .
+docker tag helpdesk-assistant <acr_login_server>/helpdesk:latest
+docker push <acr_login_server>/helpdesk:latest
 
-# 3. Configure credentials
-copy .env.example .env          # then fill in your Azure, Entra, and ServiceNow values
-# (cp on macOS/Linux)
-
-# 4. Load the FAQ data into the search index (one time)
-python index_faqs.py
-
-# 5. Run
-python main.py                  # CLI: sign in, ask a question, type 'ticket' to log it
-python webapp.py                # web app: then open http://127.0.0.1:8000 (API docs at /docs)
-pytest                          # run the test suite
+# 3. Deploy the Container App with your config
+#    Provide your Azure OpenAI / Search values in terraform/terraform.tfvars
+cd terraform
+terraform apply -auto-approve   # outputs app_url -> your live URL
 ```
 
-All required `.env` values are documented in `.env.example`. The first launch
-signs you in via the device code flow; after that, the cached token signs you in
-silently.
+`terraform.tfvars` and Terraform state hold secrets and are git-ignored. Required variables: `azure_openai_endpoint`, `azure_openai_api_key`, `azure_search_endpoint`, `azure_search_api_key`, `azure_search_index`.
 
 ---
 
-## Roadmap
+## Run locally
 
-**Done**
-- [x] Conversational chat interface
-- [x] Knowledge base lookup
-- [x] Incident categorization + priority assignment
-- [x] Live AI troubleshooting on Azure OpenAI (multi-turn)
-- [x] Vector database / semantic search (RAG) on Azure AI Search
-- [x] Microsoft Entra ID sign-in (device code flow) + Graph profile + silent token cache
-- [x] ServiceNow integration — incident creation via the REST Table API
-- [x] LLM-assisted incident categorization (with keyword-rule fallback)
-- [x] FastAPI web API + browser chat UI
+```bash
+python -m venv .venv
+.venv\Scripts\activate            # Windows  (use: source .venv/bin/activate on macOS/Linux)
+pip install -r requirements.txt
+copy .env.example .env            # then fill in your values
+uvicorn webapp:app --reload
+```
 
-The original roadmap is complete. Possible next steps below.
+Open http://localhost:8000. Configuration is read from `.env` (see `.env.example` for the full list of variables).
 
 ---
 
-## Future ideas
+## Project structure
 
-- **Browser sign-in (web SSO)** — the CLI authenticates with Entra ID via the
-  device code flow; a natural next step is adding the OAuth 2.0 authorization
-  code flow so the web UI can sign users in directly in the browser, then show
-  the same per-user greeting and record the real reporter on tickets.
-- **Personal finance tracker variant** — the same architecture (LLM +
-  categorizer + data store) could power a "sort my spending / track my bills"
-  app by swapping IT incidents for transactions. A natural second portfolio
-  project that would reuse most of what's here.
+```
+ai-helpdesk-assistant/
+├── webapp.py              # FastAPI app: chat + ticketing endpoints, chat UI
+├── helpdesk/              # core package
+│   ├── core/              # settings, LLM client
+│   ├── incidents/         # classification logic
+│   ├── knowledge/         # Azure AI Search / RAG
+│   ├── integrations/      # ServiceNow client
+│   └── auth/              # Entra ID / MSAL sign-in
+├── Dockerfile             # container build
+├── .dockerignore
+├── requirements.txt
+├── terraform/             # Infrastructure as Code (ACR, Container Apps, app)
+│   ├── main.tf
+│   └── .terraform.lock.hcl
+├── docs/
+│   └── architecture.png
+└── README.md
+```
 
 ---
 
 ## Notes
 
-- This is a portfolio/learning project. ServiceNow integration runs against a
-  **Personal Developer Instance** (not any production system), and the
-  M365/Intune scenarios are simulated — no real company tenant or data is
-  connected beyond the developer's own test Entra tenant used for sign-in.
-- Secrets and tokens live only in local, git-ignored files (`.env`,
-  `.token_cache.json`). For production, the ServiceNow auth would move to OAuth
-  and the token cache to an OS keychain.
+- **Cost:** Container Apps scales to zero when idle and ACR Basic is a few dollars a month, so the deployment is inexpensive to keep live for demos.
+- **Secrets:** API keys are injected as Container App secrets sourced from git-ignored Terraform variables. Moving them to Azure Key Vault with a managed identity is a planned enhancement.
+- **Demo configuration:** the public demo runs with the Azure OpenAI and Azure AI Search integrations enabled; ServiceNow ticketing and Entra sign-in are optional and can be enabled by supplying their environment variables.

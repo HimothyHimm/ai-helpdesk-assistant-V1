@@ -1,0 +1,82 @@
+<svg viewBox="0 0 980 600" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial, Helvetica, sans-serif">
+  <rect x="0" y="0" width="980" height="600" rx="14" fill="#ffffff"/>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#5A6B7B"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="490" y="40" text-anchor="middle" font-size="23" font-weight="700" fill="#14385A">AI Help Desk Assistant — Azure Cloud Architecture</text>
+  <text x="490" y="64" text-anchor="middle" font-size="13" fill="#5A6B7B">Containerized FastAPI app · deployed to Azure with Terraform (Infrastructure as Code)</text>
+
+  <!-- Developer -->
+  <rect x="40" y="92" width="150" height="66" rx="9" fill="#F3F4F6" stroke="#9AA5B1" stroke-width="1.5"/>
+  <text x="115" y="120" text-anchor="middle" font-size="14" font-weight="700" fill="#2B3540">Developer</text>
+  <text x="115" y="139" text-anchor="middle" font-size="11" fill="#5A6B7B">docker build</text>
+
+  <!-- ACR -->
+  <rect x="300" y="90" width="300" height="68" rx="9" fill="#EAF3FB" stroke="#0078D4" stroke-width="1.5"/>
+  <text x="450" y="118" text-anchor="middle" font-size="14" font-weight="700" fill="#14385A">Azure Container Registry</text>
+  <text x="450" y="138" text-anchor="middle" font-size="11" fill="#5A6B7B">stores helpdesk:latest image</text>
+
+  <!-- Developer -> ACR -->
+  <line x1="190" y1="124" x2="296" y2="124" stroke="#5A6B7B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="243" y="116" text-anchor="middle" font-size="10.5" fill="#5A6B7B">docker push</text>
+
+  <!-- Container Apps Environment -->
+  <rect x="266" y="196" width="368" height="214" rx="12" fill="none" stroke="#0078D4" stroke-width="1.4" stroke-dasharray="6 5"/>
+  <text x="282" y="216" font-size="12" font-weight="700" fill="#0078D4">Azure Container Apps Environment</text>
+
+  <!-- Container App (hero) -->
+  <rect x="296" y="244" width="308" height="124" rx="10" fill="#0078D4"/>
+  <text x="450" y="276" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">Container App: ca-helpdeskapp</text>
+  <text x="450" y="299" text-anchor="middle" font-size="12" fill="#DCEBFA">FastAPI app · public HTTPS ingress</text>
+  <text x="450" y="318" text-anchor="middle" font-size="12" fill="#DCEBFA">scale-to-zero autoscaling (0 → 1)</text>
+  <text x="450" y="345" text-anchor="middle" font-size="11.5" fill="#B9D8F4">API keys injected as managed secrets</text>
+
+  <!-- ACR -> Container App (image pull) -->
+  <line x1="520" y1="158" x2="520" y2="240" stroke="#5A6B7B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="532" y="200" font-size="10.5" fill="#5A6B7B">image pull</text>
+
+  <!-- User -->
+  <rect x="40" y="268" width="150" height="78" rx="9" fill="#F3F4F6" stroke="#9AA5B1" stroke-width="1.5"/>
+  <text x="115" y="300" text-anchor="middle" font-size="14" font-weight="700" fill="#2B3540">End User</text>
+  <text x="115" y="320" text-anchor="middle" font-size="11" fill="#5A6B7B">browser chat UI</text>
+
+  <!-- User -> Container App -->
+  <line x1="190" y1="306" x2="292" y2="306" stroke="#5A6B7B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="241" y="298" text-anchor="middle" font-size="10.5" fill="#5A6B7B">HTTPS</text>
+
+  <!-- Azure OpenAI -->
+  <rect x="712" y="232" width="228" height="62" rx="9" fill="#EAF3FB" stroke="#0078D4" stroke-width="1.5"/>
+  <text x="826" y="258" text-anchor="middle" font-size="13.5" font-weight="700" fill="#14385A">Azure OpenAI</text>
+  <text x="826" y="277" text-anchor="middle" font-size="11" fill="#5A6B7B">chat + incident classification</text>
+
+  <!-- Azure AI Search -->
+  <rect x="712" y="318" width="228" height="62" rx="9" fill="#EAF3FB" stroke="#0078D4" stroke-width="1.5"/>
+  <text x="826" y="344" text-anchor="middle" font-size="13.5" font-weight="700" fill="#14385A">Azure AI Search</text>
+  <text x="826" y="363" text-anchor="middle" font-size="11" fill="#5A6B7B">RAG knowledge base (vector)</text>
+
+  <!-- Container App -> OpenAI -->
+  <line x1="604" y1="292" x2="708" y2="266" stroke="#5A6B7B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="650" y="270" text-anchor="middle" font-size="10.5" fill="#5A6B7B">chat / classify</text>
+
+  <!-- Container App -> Search -->
+  <line x1="604" y1="330" x2="708" y2="346" stroke="#5A6B7B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="656" y="356" text-anchor="middle" font-size="10.5" fill="#5A6B7B">retrieve (RAG)</text>
+
+  <!-- Log Analytics -->
+  <rect x="296" y="438" width="308" height="54" rx="9" fill="#EAF3FB" stroke="#0078D4" stroke-width="1.5"/>
+  <text x="450" y="463" text-anchor="middle" font-size="13" font-weight="700" fill="#14385A">Azure Log Analytics</text>
+  <text x="450" y="481" text-anchor="middle" font-size="11" fill="#5A6B7B">container logs &amp; monitoring</text>
+
+  <!-- Container App -> Log Analytics -->
+  <line x1="450" y1="368" x2="450" y2="434" stroke="#5A6B7B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="462" y="408" font-size="10.5" fill="#5A6B7B">logs</text>
+
+  <!-- Terraform footer -->
+  <rect x="40" y="524" width="900" height="48" rx="9" fill="#F6F1FB" stroke="#7B42BC" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="60" y="545" font-size="13" font-weight="700" fill="#7B42BC">⚙ Terraform (Infrastructure as Code)</text>
+  <text x="60" y="563" font-size="11.5" fill="#5A6B7B">A single `terraform apply` provisions the registry, Container Apps environment, app, secrets, and monitoring — fully reproducible.</text>
+</svg>
