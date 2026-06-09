@@ -1,7 +1,8 @@
 # AI Help Desk Assistant
 
-An end-to-end, AI-powered IT support assistant built on the Microsoft / Azure stack. It handles multi-turn troubleshooting, automatically classifies incidents by category and priority, and answers questions using retrieval-augmented generation (RAG) over a knowledge base — then optionally files a ServiceNow ticket. The app is containerized with Docker and deployed to **Azure Container Apps entirely through Terraform (Infrastructure as Code)**.
+An end-to-end, AI-powered IT support assistant built on the Microsoft / Azure stack. It handles multi-turn troubleshooting, automatically classifies incidents by category and priority, and answers questions using retrieval-augmented generation (RAG) over a knowledge base — then optionally files a ServiceNow ticket. The app is containerized with Docker and deployed to **Azure Container Apps entirely through Terraform (Infrastructure as Code)**, with a **GitHub Actions CI/CD pipeline** that redeploys on every push.
 
+[![Deploy to Azure Container Apps](https://github.com/HimothyHimm/ai-helpdesk-assistant-V1/actions/workflows/deploy.yml/badge.svg)](https://github.com/HimothyHimm/ai-helpdesk-assistant-V1/actions/workflows/deploy.yml)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
@@ -18,7 +19,7 @@ An end-to-end, AI-powered IT support assistant built on the Microsoft / Azure st
 
 ![Architecture diagram](docs/architecture.png)
 
-A request flows from the browser over HTTPS into a **Container App** running the FastAPI service. The app calls **Azure OpenAI** for conversational troubleshooting and incident classification, and **Azure AI Search** to retrieve grounded answers from the knowledge base (RAG). The container image is built locally with Docker, pushed to **Azure Container Registry (ACR)**, and pulled by the Container App at deploy time. API keys are supplied as **managed Container App secrets**, and container logs flow to **Azure Log Analytics**. Every Azure resource — registry, Container Apps environment, the app, its secrets, and monitoring — is defined in **Terraform** and created with a single `terraform apply`.
+A request flows from the browser over HTTPS into a **Container App** running the FastAPI service. The app calls **Azure OpenAI** for conversational troubleshooting and incident classification, and **Azure AI Search** to retrieve grounded answers from the knowledge base (RAG). The container image is built with Docker, pushed to **Azure Container Registry (ACR)**, and pulled by the Container App. API keys are supplied as **managed Container App secrets**, and container logs flow to **Azure Log Analytics**. Every Azure resource — registry, Container Apps environment, the app, its secrets, and monitoring — is defined in **Terraform** and created with a single `terraform apply`, while a **GitHub Actions** pipeline handles ongoing builds and deployments.
 
 ---
 
@@ -43,6 +44,7 @@ A request flows from the browser over HTTPS into a **Container App** running the
 | ITSM | ServiceNow REST Table API |
 | Container | Docker |
 | Infrastructure as Code | Terraform (azurerm provider) |
+| CI/CD | GitHub Actions with OpenID Connect (passwordless) |
 | Hosting | Azure Container Apps, Azure Container Registry, Azure Log Analytics |
 
 ---
@@ -83,6 +85,18 @@ terraform apply -auto-approve   # outputs app_url -> your live URL
 
 ---
 
+## Continuous deployment
+
+Every push to `main` triggers a GitHub Actions workflow ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) that:
+
+1. authenticates to Azure using **OpenID Connect** — no stored passwords or long-lived credentials,
+2. builds the Docker image and pushes it to ACR (tagged with the commit SHA), and
+3. rolls out a new Container App revision running that image.
+
+Azure access is granted to a service principal with a **federated credential** scoped to this repository, holding only **Contributor** on the resource group and **AcrPush** on the registry (least privilege). The three non-secret identifiers — client, tenant, and subscription IDs — are stored as GitHub Actions secrets. Terraform ignores the running image tag (`lifecycle.ignore_changes`) so the pipeline and IaC never fight over the deployed version.
+
+---
+
 ## Run locally
 
 ```bash
@@ -114,6 +128,8 @@ ai-helpdesk-assistant/
 ├── terraform/             # Infrastructure as Code (ACR, Container Apps, app)
 │   ├── main.tf
 │   └── .terraform.lock.hcl
+├── .github/workflows/
+│   └── deploy.yml         # CI/CD pipeline
 ├── docs/
 │   └── architecture.png
 └── README.md
